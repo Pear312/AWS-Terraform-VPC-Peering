@@ -1,56 +1,75 @@
 provider "aws" {
   region = "us-east-1"
 }
-
-
-// VPC
+/////////////////////////////////
+//
+// VPC 1
+//
+/////////////////////////////////
 resource "aws_vpc" "prod_vpc" {
-  cidr_block = "10.0.0.0/16"
+  cidr_block = "10.1.0.0/16"
 
   tags = {
-    Name = "NextWork VPC"
+    Name = "NextWork VPC 1"
   }
 }
-
 
 // Public Subnet 
 resource "aws_subnet" "subnet_1" {
   vpc_id            = aws_vpc.prod_vpc.id
-  cidr_block        = "10.0.0.0/24"
+  cidr_block        = "10.1.0.0/24"
   availability_zone = "us-east-1a"
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "NextWork Public Subnet"
+    Name = "NextWork Public Subnet 1"
   }
 }
 
-// Internet Gateway
-resource "aws_internet_gateway" "gw" {
+// Network ACL
+resource "aws_network_acl" "acl" {
   vpc_id = aws_vpc.prod_vpc.id
+  subnet_ids = [aws_subnet.subnet_1.id]
+
+  ingress {
+    protocol   = "-1"
+    rule_no    = 100
+    action     = "allow"
+    cidr_block = "0.0.0.0/0"
+    from_port  = 0
+    to_port    = 0
+  }
+
+  egress {
+    protocol   = "-1"
+    rule_no    = 100
+    action     = "allow"
+    cidr_block = "0.0.0.0/0"
+    from_port  = 0
+    to_port    = 0
+  }
 
   tags = {
-    Name = "NextWork IG"
+    Name = "NextWork ACL"
   }
 }
-
 
 // Route Table
 resource "aws_route_table" "prod_route_table" {
   vpc_id = aws_vpc.prod_vpc.id
 
   route {
-    cidr_block = "10.0.0.0/16"
-    gateway_id = "local"
-  }
-
-  route {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.gw.id
   }
 
+  route {
+    cidr_block = "10.2.0.0/16"
+    vpc_peering_connection_id = aws_vpc_peering_connection.vpc1_to_vpc2.id
+  }
+
   tags = {
-    Name = "NextWork Public Route Table"
+    Name = "NextWork Public Route Table 1"
   }
 }
 
@@ -95,46 +114,45 @@ resource "aws_security_group" "nextwork_sg" {
   }
 }
 
-// Private security group
-resource "aws_security_group" "nextwork_sg_private" {
-  name        = "NextWork Private Security Group"
-  description = "A Security Group for the NextWork Private subnet."
-  vpc_id      = aws_vpc.prod_vpc.id
-
-  ingress {
-    description = "SSH from public security group"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    security_groups = [aws_security_group.nextwork_sg.id]
-  }
-
-  ingress {
-    description = "All ICMP"
-    from_port = -1
-    to_port = -1
-    protocol = "icmp"
-    security_groups = [aws_security_group.nextwork_sg.id]
-  }
-
-  egress {
-    description = "Allow all outbound traffic"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+// Internet Gateway
+resource "aws_internet_gateway" "gw" {
+  vpc_id = aws_vpc.prod_vpc.id
 
   tags = {
-    Name = "NextWork Private Security Group"
+    Name = "NextWork IG"
   }
 }
 
 
+/////////////////////////////////
+//
+// VPC 2
+//
+/////////////////////////////////
+resource "aws_vpc" "prod_vpc_2" {
+  cidr_block = "10.2.0.0/16"
+
+  tags = {
+    Name = "NextWork VPC 2"
+  }
+}
+
+// Public Subnet 
+resource "aws_subnet" "subnet_2" {
+  vpc_id = aws_vpc.prod_vpc_2.id
+  cidr_block = "10.2.0.0/24"
+  availability_zone = "us-east-1b"
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name = "NextWork Public Subnet 2"
+  }
+}
+
 // Network ACL
-resource "aws_network_acl" "acl" {
-  vpc_id = aws_vpc.prod_vpc.id
-  subnet_ids = [aws_subnet.subnet_1.id]
+resource "aws_network_acl" "acl2" {
+  vpc_id = aws_vpc.prod_vpc_2.id
+  subnet_ids = [aws_subnet.subnet_2.id]
 
   ingress {
     protocol   = "-1"
@@ -144,7 +162,7 @@ resource "aws_network_acl" "acl" {
     from_port  = 0
     to_port    = 0
   }
-
+  
   egress {
     protocol   = "-1"
     rule_no    = 100
@@ -159,68 +177,94 @@ resource "aws_network_acl" "acl" {
   }
 }
 
-
-// Private Subnet
-resource "aws_subnet" "Private_subnet" {
-  vpc_id     = aws_vpc.prod_vpc.id
-  cidr_block = "10.0.1.0/24"
-  availability_zone = "us-east-1b"
-
-  tags = {
-    Name = "NextWork Private Subnet"
-  }
-}
-
-// Route table for private subnet
-resource "aws_route_table" "private_route_table" {
-  vpc_id = aws_vpc.prod_vpc.id
+// Route Table
+resource "aws_route_table" "prod_route_table2" {
+  vpc_id = aws_vpc.prod_vpc_2.id
 
   route {
-    cidr_block = "10.0.0.0/16"
-    gateway_id = "local"
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.gw2.id
+  }
+
+  route {
+    cidr_block = "10.1.0.0/16"
+    vpc_peering_connection_id = aws_vpc_peering_connection.vpc1_to_vpc2.id
   }
 
   tags = {
-    Name = "NextWork Private Route Table"
+    Name = "NextWork Public Route Table 2"
   }
 }
 
-resource "aws_route_table_association" "private_subnet_assoc" {
-  subnet_id      = aws_subnet.Private_subnet.id
-  route_table_id = aws_route_table.private_route_table.id
+resource "aws_route_table_association" "subnet_assoc2" {
+  subnet_id      = aws_subnet.subnet_2.id
+  route_table_id = aws_route_table.prod_route_table2.id
 }
 
-// Private subnet ACL
-resource "aws_network_acl" "private_acl" {
-  vpc_id = aws_vpc.prod_vpc.id
-  subnet_ids = [aws_subnet.Private_subnet.id]
+
+// Security Group 2
+resource "aws_security_group" "nextwork_sg2" {
+  name        = "NextWork Security Group"
+  description = "A Security Group for the NextWork VPC."
+  vpc_id      = aws_vpc.prod_vpc_2.id
 
   ingress {
-    protocol   = "icmp"
-    rule_no    = 100
-    action     = "allow"
-    cidr_block = "10.0.0.0/24"
-
-    from_port = 0
-    to_port = 0
-    icmp_type = -1
-    icmp_code = -1
+    description = "HTTP"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  
+  ingress {
+    description = "All ICMP"
+    from_port = -1
+    to_port = -1
+    protocol = "icmp"
+    security_groups = [aws_security_group.nextwork_sg.id]
+  }
+  
+  ingress {
+    description = "SSH"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   egress {
-    protocol   = "icmp"
-    rule_no    = 100
-    action     = "allow"
-    cidr_block = "10.0.0.0/24"
-    
-    from_port = 0
-    to_port = 0
-    icmp_type = -1
-    icmp_code = -1
+    description = "Allow all outbound traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   tags = {
-    Name = "NextWork Private NACL"
+    Name = "NextWork Security Group 2"
+  }
+}
+
+// Internet Gateway 2
+resource "aws_internet_gateway" "gw2" {
+  vpc_id = aws_vpc.prod_vpc_2.id
+
+  tags = {
+    Name = "NextWork IG 2"
+  }
+}
+
+
+//////////////
+// VPC Peering
+//////////////
+resource "aws_vpc_peering_connection" "vpc1_to_vpc2" {
+  vpc_id      = aws_vpc.prod_vpc.id
+  peer_vpc_id = aws_vpc.prod_vpc_2.id
+  auto_accept = true
+
+  tags = {
+    Name = "VPC 1 <> VPC 2"
   }
 }
 
@@ -229,8 +273,8 @@ resource "aws_network_acl" "private_acl" {
 # Launch EC2 into both private and public subnets
 #
 
-// Public EC2
-resource "aws_instance" "public_server" {
+// EC2 VPC 1
+resource "aws_instance" "public_server_1" {
   ami = "ami-0bdc7d025135d7b49"
   instance_type = "t2.micro"
   key_name = "devKey"
@@ -240,22 +284,22 @@ resource "aws_instance" "public_server" {
   vpc_security_group_ids = [aws_security_group.nextwork_sg.id]
 
   tags = {
-    Name = "NextWork public instance"
+    Name = "Instance - VPC 1"
   }
 }
 
-// Private EC2
-resource "aws_instance" "private_server" {
+// EC2 VPC 2
+resource "aws_instance" "public_server_2" {
   ami = "ami-0bdc7d025135d7b49"
   instance_type = "t2.micro"
   key_name = "devKey"
 
-  subnet_id = aws_subnet.Private_subnet.id
+  subnet_id = aws_subnet.subnet_2.id
 
-  vpc_security_group_ids = [aws_security_group.nextwork_sg_private.id]
+  vpc_security_group_ids = [aws_security_group.nextwork_sg2.id]
 
   tags = {
-    Name = "NextWork private instance"
+    Name = "Instance - VPC 2"
   }
 }
 
