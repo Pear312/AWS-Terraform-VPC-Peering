@@ -224,13 +224,19 @@ resource "aws_security_group" "nextwork_sg2" {
     cidr_blocks = ["0.0.0.0/0"]
   }
   
-  
-  
   ingress {
     description = "SSH"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "All ICMP"
+    from_port = -1
+    to_port = -1
+    protocol = "icmp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -304,4 +310,81 @@ resource "aws_instance" "public_server_2" {
     Name = "Instance - VPC 2"
   }
 }
+
+
+///////////////////////////////
+//      CloudWatch
+//          &
+//       Flow Logs
+///////////////////////////////
+
+// Cloudwatch log
+resource "aws_cloudwatch_log_group" "log_group" {
+  name = "/nextwork/vpc-flow-logs"
+  retention_in_days = 5
+
+  tags = {
+    Name = "NextWorkVPCFlowLogsGroup"
+  }
+}
+
+// Flow log
+resource "aws_flow_log" "VPC_1" {
+  iam_role_arn    = aws_iam_role.flow_log_role.arn
+  vpc_id          = aws_vpc.prod_vpc.id
+  log_destination = aws_cloudwatch_log_group.log_group.arn
+  traffic_type    = "ALL"
+  max_aggregation_interval = 60
+}
+
+// IAM Policy  
+resource "aws_iam_policy" "allow_write_send" {
+  name        = "NextWorkVPCFlowLogsPolicy"
+  path        = "/"
+  description = "Allows VPC Flow Logs the permission to write logs and send them to CloudWatch"
+
+  policy = jsonencode({
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogGroups",
+          "logs:DescribeLogStreams"
+        ],
+        "Resource": "*"
+      }
+    ]
+  })
+}
+
+// IAM role 
+resource "aws_iam_role" "flow_log_role" {
+  name = "Flow Log Role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Sid    = "Statement1"
+        Principal = {
+          Service = "vpc-flow-logs.amazonaws.com"
+        }
+      },
+    ]
+  })
+}
+
+// Attach permissions to role
+resource "aws_iam_role_policy_attachment" "attach" {
+  role       = aws_iam_role.flow_log_role.name
+  policy_arn = aws_iam_policy.allow_write_send.arn
+}
+
+// step #5 Test vpc peering
 
